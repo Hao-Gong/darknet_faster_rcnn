@@ -36,6 +36,7 @@
 #include "softmax_layer.h"
 #include "lstm_layer.h"
 #include "utils.h"
+#include "faster_rcnn_layer.h"
 
 typedef struct{
     char *type;
@@ -46,8 +47,8 @@ list *read_cfg(char *filename);
 
 LAYER_TYPE string_to_layer_type(char * type)
 {
-
     if (strcmp(type, "[shortcut]")==0) return SHORTCUT;
+    if (strcmp(type, "[fasterrcnn]")==0) return FASTER_RCNN;
     if (strcmp(type, "[crop]")==0) return CROP;
     if (strcmp(type, "[cost]")==0) return COST;
     if (strcmp(type, "[detection]")==0) return DETECTION;
@@ -175,7 +176,6 @@ layer parse_deconvolutional(list *options, size_params params)
     return l;
 }
 
-
 convolutional_layer parse_convolutional(list *options, size_params params)
 {
     int n = option_find_int(options, "filters",1);
@@ -202,6 +202,7 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     convolutional_layer layer = make_convolutional_layer(batch,h,w,c,n,groups,size,stride,padding,activation, batch_normalize, binary, xnor, params.net->adam);
     layer.flipped = option_find_int_quiet(options, "flipped", 0);
     layer.dot = option_find_float_quiet(options, "dot", 0);
+    layer.stopbackward=option_find_float_quiet(options, "stopbackward", 0);
 
     return layer;
 }
@@ -301,6 +302,103 @@ int *parse_yolo_mask(char *a, int *num)
         *num = n;
     }
     return mask;
+}
+
+// convolutional_layer parse_convolutional(list *options, size_params params)
+// {
+//     int n = option_find_int(options, "filters",1);
+//     int size = option_find_int(options, "size",1);
+//     int stride = option_find_int(options, "stride",1);
+//     int pad = option_find_int_quiet(options, "pad",0);
+//     int padding = option_find_int_quiet(options, "padding",0);
+//     int groups = option_find_int_quiet(options, "groups", 1);
+//     if(pad) padding = size/2;
+
+//     char *activation_s = option_find_str(options, "activation", "logistic");
+//     ACTIVATION activation = get_activation(activation_s);
+
+//     int batch,h,w,c;
+//     h = params.h;
+//     w = params.w;
+//     c = params.c;
+//     batch=params.batch;
+//     if(!(h && w && c)) error("Layer before convolutional layer must output image.");
+//     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
+//     int binary = option_find_int_quiet(options, "binary", 0);
+//     int xnor = option_find_int_quiet(options, "xnor", 0);
+
+//     convolutional_layer layer = make_convolutional_layer(batch,h,w,c,n,groups,size,stride,padding,activation, batch_normalize, binary, xnor, params.net->adam);
+//     layer.flipped = option_find_int_quiet(options, "flipped", 0);
+//     layer.dot = option_find_float_quiet(options, "dot", 0);
+
+//     return layer;
+// }faster
+
+
+layer parse_faster_rcnn(list *options, size_params params)
+{
+    int classes = option_find_int(options, "classes", 20);
+
+    faster_rcnn_params f_param;
+    f_param.train_rcnn_flg=option_find_int(options,"train_rcnn_flg",1);
+    f_param.rpn_iou_pos_thresh=option_find_float(options, "rpn_iou_pos_thresh", 0.7);
+    f_param.rpn_iou_neg_thresh=option_find_float(options, "rpn_iou_neg_thresh", 0.3);
+    f_param.rpn_sample_num=option_find_int(options, "rpn_sample_num", 256);
+    f_param.rpn_sample_pos_ratio=option_find_float(options, "rpn_sample_pos_ratio", 0.5);
+    f_param.rois_nms_thresh=option_find_float(options, "rois_nms_thresh", 0.7);
+    f_param.rois_min_area_thresh=option_find_float(options, "rois_min_area_thresh", 16);
+    f_param.downsample_ratio=option_find_float(options, "downsample_ratio", 16);
+    f_param.train_pre_nms_num=option_find_int(options, "train_pre_nms_num", 12000);
+    f_param.train_post_nms_num=option_find_int(options, "train_post_nms_num", 2000);
+    f_param.test_pre_nms_num=option_find_int(options, "test_pre_nms_num", 6000);
+    f_param.test_post_nms_num=option_find_int(options, "test_post_nms_num", 300);
+    f_param.rois_sample_num=option_find_int(options, "rois_sample_num", 64);
+    f_param.rois_sample_ratio=option_find_float(options, "rois_sample_ratio", 0.5);
+    f_param.roialign_pooling_height=option_find_int(options, "roialign_pooling_height", 7);
+    f_param.roialign_pooling_width=option_find_int(options, "roialign_pooling_width", 7);
+    f_param.pos_iou_thresh=option_find_float(options, "pos_iou_thresh", 0.5);
+    f_param.neg_iou_thresh_hi=option_find_float(options, "neg_iou_thresh_hi", 0.5);
+    f_param.neg_iou_thresh_lo=option_find_float(options, "neg_iou_thresh_lo", 0.0);
+
+    char *a = option_find_str(options, "anchor_scale", 0);
+    if(a){
+        int len=strlen(a);
+        int n = 1;
+        int i;
+        for(i = 0; i < len; ++i){
+            if (a[i] == ',') ++n;
+        }
+        f_param.anchor_scale_num = n;
+        f_param.anchor_scale=calloc(f_param.anchor_scale_num, sizeof(float));
+        for(i = 0; i < n; ++i){
+            float bias = atof(a);
+            f_param.anchor_scale[i]= bias;
+            a = strchr(a, ',')+1;
+        }
+    }
+    char *a2 = option_find_str(options, "anchor_ratio", 0);
+    if(a2){
+        int len=strlen(a2);
+
+        int n = 1;
+        int i;
+        for(i = 0; i <len; ++i){
+            if (a2[i] == ',') ++n;
+        }
+        f_param.anchor_ratio_num = n;
+        f_param.anchor_ratio=calloc(f_param.anchor_ratio_num, sizeof(float));
+        for(i = 0; i < n; ++i){
+            float bias = atof(a2);
+            f_param.anchor_ratio[i]= bias;
+            a2 = strchr(a2, ',')+1;
+        }
+    }
+
+    layer l = make_faster_rcnn_layer(params.batch, params.w, params.h, params.c, classes, params.net->adam,f_param);
+    l.max_boxes = option_find_int_quiet(options, "max",90);
+    l.truths = 90*(4 + 1);
+
+    return l;
 }
 
 layer parse_yolo(list *options, size_params params)
@@ -775,6 +873,8 @@ network *parse_network_cfg(char *filename)
         LAYER_TYPE lt = string_to_layer_type(s->type);
         if(lt == CONVOLUTIONAL){
             l = parse_convolutional(options, params);
+        }else if(lt == FASTER_RCNN){
+            l = parse_faster_rcnn(options, params);
         }else if(lt == DECONVOLUTIONAL){
             l = parse_deconvolutional(options, params);
         }else if(lt == LOCAL){
@@ -1037,6 +1137,17 @@ void save_weights_upto(network *net, char *filename, int cutoff)
             save_connected_weights(*(l.input_layer), fp);
             save_connected_weights(*(l.self_layer), fp);
             save_connected_weights(*(l.output_layer), fp);
+        }  if (l.type == FASTER_RCNN) {
+            save_convolutional_weights(*(l.rpn_conv1), fp);
+            save_convolutional_weights(*(l.rpn_bbox_pred), fp);
+            save_convolutional_weights(*(l.rpn_cls_score), fp);
+            for(int ld=0;ld<l.roi_head_layers_num;ld++){
+                if(l.roi_head_layers[ld].type== CONVOLUTIONAL){
+                    save_convolutional_weights(l.roi_head_layers[ld], fp);
+                }
+            }
+            save_connected_weights(*(l.roi_bbox_pred), fp);
+            save_connected_weights(*(l.roi_cls_score), fp);
         } if (l.type == LSTM) {
             save_connected_weights(*(l.wi), fp);
             save_connected_weights(*(l.wf), fp);
@@ -1287,6 +1398,23 @@ void load_weights_upto(network *net, char *filename, int start, int cutoff)
                 load_connected_weights(*(l.reset_layer), fp, transpose);
                 load_connected_weights(*(l.update_layer), fp, transpose);
                 load_connected_weights(*(l.state_layer), fp, transpose);
+            }
+        }
+        if (l.type == FASTER_RCNN) {
+            if(net->pretrain==0){
+                printf("#####loading faster rcnn heads#####");
+                load_convolutional_weights(*(l.rpn_conv1), fp);
+                load_convolutional_weights(*(l.rpn_bbox_pred), fp);
+                load_convolutional_weights(*(l.rpn_cls_score), fp);
+                for(int ld=0;ld<l.roi_head_layers_num;ld++){
+                    if(l.roi_head_layers[ld].type== CONVOLUTIONAL){
+                        load_convolutional_weights(l.roi_head_layers[ld], fp);
+                    }
+                }
+                load_connected_weights(*(l.roi_bbox_pred), fp, transpose);
+                load_connected_weights(*(l.roi_cls_score), fp, transpose);
+            }else{
+                printf("#####not loading faster rcnn heads#####");
             }
         }
         if(l.type == LOCAL){

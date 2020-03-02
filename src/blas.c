@@ -268,6 +268,7 @@ void softmax_x_ent_cpu(int n, float *pred, float *truth, float *delta, float *er
     for(i = 0; i < n; ++i){
         float t = truth[i];
         float p = pred[i];
+        // printf("truth:%f pred:%f\n",t,p);
         error[i] = (t) ? -log(p) : 0;
         delta[i] = t-p;
     }

@@ -18,6 +18,48 @@ int nms_comparator(const void *pa, const void *pb)
     return 0;
 }
 
+// void get_propose_target(float* rois,float* rois_target,float* rois_target_label,network net,int batch,int n_train_post_nms,int n_sample,float pos_ratio,float pos_iou_thresh,float neg_iou_thresh_hi,float neg_iou_thresh_lo){
+void get_propose_target(layer l,network net,int b){
+
+}
+
+void do_nms_obj_rcnn(detection *dets, int total, int pre_nms_num, float iou_thresh,float min_area,network net)
+{
+    int i, j, k;
+    k = total-1;
+    min_area=min_area/net.w/net.h;
+    for(i = 0; i <= k; ++i){
+        if(dets[i].objectness == 0 || dets[i].bbox.w*dets[i].bbox.h<min_area){
+            dets[i].objectness =0;
+            detection swap = dets[i];
+            dets[i] = dets[k];
+            dets[k] = swap;
+            --k;
+            --i;
+        }
+    }
+    total = k+1;
+
+    for(i = 0; i < total; ++i){
+        dets[i].sort_class = -1;
+    }
+
+    qsort(dets, total, sizeof(detection), nms_comparator);
+
+    if(pre_nms_num>total) pre_nms_num=total;
+    for(i = 0; i <pre_nms_num; ++i){
+        if(dets[i].objectness == 0) continue;
+        box a = dets[i].bbox;
+        for(j = i+1; j < pre_nms_num; ++j){
+            if(dets[j].objectness == 0) continue;
+            box b = dets[j].bbox;
+            if (box_iou(a, b) > iou_thresh){
+                dets[j].objectness = 0;
+            }
+        }
+    }
+}
+
 void do_nms_obj(detection *dets, int total, int classes, float thresh)
 {
     int i, j, k;

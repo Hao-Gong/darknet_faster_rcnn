@@ -90,6 +90,7 @@ box get_yolo_box(float *x, float *biases, int n, int index, int i, int j, int lw
     return b;
 }
 
+
 float delta_yolo_box(box truth, float *x, float *biases, int n, int index, int i, int j, int lw, int lh, int w, int h, float *delta, float scale, int stride)
 {
     box pred = get_yolo_box(x, biases, n, index, i, j, lw, lh, w, h, stride);
@@ -121,7 +122,7 @@ void delta_yolo_class(float *output, float *delta, int index, int class, int cla
         if(n == class && avg_cat) *avg_cat += output[index + stride*n];
     }
 }
-
+// entry_index(l, b, n*l.w*l.h + j*l.w + i, 0);
 static int entry_index(layer l, int batch, int location, int entry)
 {
     int n =   location / (l.w*l.h);
@@ -179,7 +180,9 @@ void forward_yolo_layer(const layer l, network net)
                     if (best_iou > l.ignore_thresh) {
                         l.delta[obj_index] = 0;
                     }
+                   
                     if (best_iou > l.truth_thresh) {
+                         printf("best_iou:%f truth_thresh:%f\n",best_iou , l.truth_thresh);
                         l.delta[obj_index] = 1 - l.output[obj_index];
 
                         int class = net.truth[best_t*(4 + 1) + b*l.truths + 4];

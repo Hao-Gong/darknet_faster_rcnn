@@ -707,7 +707,7 @@ extern "C" void fill_gpu(int N, float ALPHA, float * X, int INCX)
     fill_kernel<<<cuda_gridsize(N), BLOCK>>>(N, ALPHA, X, INCX);
     check_error(cudaPeekAtLastError());
 }
-
+// shortcut_gpu(l.batch, l.out_w, l.out_h, l.out_c, l.delta_gpu, l.w, l.h, l.c, 1, l.beta, net.layers[l.index].delta_gpu);
 __global__ void shortcut_kernel(int size, int minw, int minh, int minc, int stride, int sample, int batch, int w1, int h1, int c1, float *add, int w2, int h2, int c2, float s1, float s2, float *out)
 {
     int id = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;

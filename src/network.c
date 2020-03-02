@@ -6,7 +6,7 @@
 #include "data.h"
 #include "utils.h"
 #include "blas.h"
-
+#include "faster_rcnn_layer.h"
 #include "crop_layer.h"
 #include "connected_layer.h"
 #include "gru_layer.h"
@@ -53,6 +53,7 @@ load_args get_base_args(network *net)
 network *load_network(char *cfg, char *weights, int clear)
 {
     network *net = parse_network_cfg(cfg);
+    net->pretrain=clear;
     if(weights && weights[0] != 0){
         load_weights(net, weights);
     }
@@ -185,8 +186,10 @@ network *make_network(int n)
     return net;
 }
 
+
 void forward_network(network *netp)
 {
+
 #ifdef GPU
     if(netp->gpu_index >= 0){
         forward_network_gpu(netp);   
@@ -196,6 +199,7 @@ void forward_network(network *netp)
     network net = *netp;
     int i;
     for(i = 0; i < net.n; ++i){
+        // printf("*****************forward_network: %d\n",i);
         net.index = i;
         layer l = net.layers[i];
         if(l.delta){
@@ -207,7 +211,7 @@ void forward_network(network *netp)
             net.truth = l.output;
         }
     }
-    calc_network_cost(netp);
+    // calc_network_cost(netp);
 }
 
 void update_network(network *netp)
@@ -282,6 +286,7 @@ void backward_network(network *netp)
             net.delta = prev.delta;
         }
         net.index = i;
+        printf("##################back_network: %d\n",i);
         l.backward(l, net);
     }
 }
@@ -291,10 +296,12 @@ float train_network_datum(network *net)
     *net->seen += net->batch;
     net->train = 1;
     forward_network(net);
+    // printf("***********************train_network5\n");
     backward_network(net);
     float error = *net->cost;
     if(((*net->seen)/net->batch)%net->subdivisions == 0) update_network(net);
-    return error;
+    // return error;
+    return 0;
 }
 
 float train_network_sgd(network *net, data d, int n)
@@ -316,7 +323,6 @@ float train_network(network *net, data d)
     assert(d.X.rows % net->batch == 0);
     int batch = net->batch;
     int n = d.X.rows / batch;
-
     int i;
     float sum = 0;
     for(i = 0; i < n; ++i){
@@ -505,6 +511,93 @@ float *network_predict(network *net, float *input)
     float *out = net->output;
     *net = orig;
     return out;
+}
+
+int network_predict_faster_rcnn(network *net, float *input)
+{
+    network orig = *net;
+    net->input = input;
+    net->truth = 0;
+    net->train = 0;
+    net->delta = 0;
+    forward_network(net);
+    float *out = net->output;
+    *net = orig;
+
+    layer l = net->layers[net->n - 1];
+    
+    int nboxes=0;
+    if(l.type==FASTER_RCNN){
+
+        for(int b=0;b<l.rois_cls_score_softmax->batch;b++){
+            int pred_class=0;
+            float best_class_score=0;
+            for(int c=0;c<l.classes+1;c++){
+                int _index=(l.classes+1)*b+c;
+                // printf("cls:%f \t",l.rois_cls_score_softmax->output[_index]);
+                if(best_class_score<l.rois_cls_score_softmax->output[_index]){
+                    best_class_score=l.rois_cls_score_softmax->output[_index];
+                    pred_class=c;
+                }
+            }
+            if(pred_class>0){
+                // printf("id:%d bsox:%d pred cls:%d score:%f\n",b,nboxes,pred_class,best_class_score);
+                nboxes++;
+            }
+        }
+    }else{
+        printf("please use FASTER RCNN detector");
+    }
+
+    return nboxes;
+}
+
+void get_faster_rcnn_dets(network *net, detection* dets,int w, int h,int ndets)
+{    
+    layer l = net->layers[net->n - 1];
+    
+    int nboxes=0;
+    if(l.type==FASTER_RCNN){
+        nboxes=0;
+        for(int b=0;b<l.rois_sample_num;b++){
+            int pred_class=0;
+            float best_class_score=0;
+            for(int c=0;c<l.classes+1;c++){
+                int _index=(l.classes+1)*b+c;
+                // printf("cls:%f \t",l.rois_cls_score_softmax->output[_index]);
+                if(best_class_score<l.rois_cls_score_softmax->output[_index]){
+                    best_class_score=l.rois_cls_score_softmax->output[_index];
+                    pred_class=c;
+                }
+            }
+            if(pred_class>0){
+                dets[nboxes].prob[pred_class-1]=best_class_score;
+                dets[nboxes].classes=l.classes;
+                dets[nboxes].objectness=1;
+                int _index=(l.classes+1)*b+pred_class;
+                // (l.rois_target[4*b]
+                float tx=l.roi_bbox_pred->output[(_index)*4];
+                float ty=l.roi_bbox_pred->output[(_index)*4+1];
+                float tw=l.roi_bbox_pred->output[(_index)*4+2];
+                float th=l.roi_bbox_pred->output[(_index)*4+3];
+
+                box roi;
+                roi.x=(l.rois[b*5+1]+l.rois[b*5+3])/2/net->w;
+                roi.y=(l.rois[b*5+2]+l.rois[b*5+4])/2/net->h;
+                roi.w=(l.rois[b*5+3]-l.rois[b*5+1])/net->w;
+                roi.h=(l.rois[b*5+4]-l.rois[b*5+2])/net->h;
+
+                dets[nboxes].bbox.x=(roi.w*tx+roi.x);
+                dets[nboxes].bbox.y=(roi.h*ty+roi.y);
+                dets[nboxes].bbox.w=(exp(tw)*roi.w);
+                dets[nboxes].bbox.h=(exp(th)*roi.h);
+                nboxes++;
+            }
+        }
+        correct_yolo_boxes(dets, ndets, w, h, net->w, net->h, 1);
+    }else{
+        printf("please use FASTER RCNN detector");
+    }
 }
 
 int num_detections(network *net, float thresh)
@@ -775,6 +868,7 @@ void forward_network_gpu(network *netp)
         if(l.delta_gpu){
             fill_gpu(l.outputs * l.batch, 0, l.delta_gpu, 1);
         }
+        // printf("*****************forward_network GPU: %d\n",i);
         l.forward_gpu(l, net);
         net.input_gpu = l.output_gpu;
         net.input = l.output;
@@ -795,18 +889,22 @@ void backward_network_gpu(network *netp)
     cuda_set_device(net.gpu_index);
     for(i = net.n-1; i >= 0; --i){
         layer l = net.layers[i];
+        // printf("stopbackward:%d\n",l.stopbackward);
         if(l.stopbackward) break;
         if(i == 0){
             net = orig;
         }else{
+
             layer prev = net.layers[i-1];
             net.input = prev.output;
             net.delta = prev.delta;
             net.input_gpu = prev.output_gpu;
             net.delta_gpu = prev.delta_gpu;
         }
+        // printf("##################back_network GPU: %d\n",i);
         net.index = i;
         l.backward_gpu(l, net);
+        // break;
     }
 }
 
@@ -829,6 +927,7 @@ void update_network_gpu(network *netp)
 
     for(i = 0; i < net.n; ++i){
         layer l = net.layers[i];
+        // printf("*****************update_network GPU: %d\n",i);
         if(l.update_gpu){
             l.update_gpu(l, a);
         }

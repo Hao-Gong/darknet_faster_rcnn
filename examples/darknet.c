@@ -427,6 +427,8 @@ int main(int argc, char **argv)
         run_super(argc, argv);
     } else if (0 == strcmp(argv[1], "lsd")){
         run_lsd(argc, argv);
+    } else if (0 == strcmp(argv[1], "faster_rcnn")){
+        run_faster_rcnn(argc, argv);
     } else if (0 == strcmp(argv[1], "detector")){
         run_detector(argc, argv);
     } else if (0 == strcmp(argv[1], "detect")){

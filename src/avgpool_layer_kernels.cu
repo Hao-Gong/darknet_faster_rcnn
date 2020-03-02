@@ -59,3 +59,19 @@ extern "C" void backward_avgpool_layer_gpu(avgpool_layer layer, network net)
     check_error(cudaPeekAtLastError());
 }
 
+extern "C" void forward_avgpool_layer_pure_gpu(avgpool_layer layer, float*input_gpu)
+{
+    size_t n = layer.c*layer.batch;
+
+    forward_avgpool_layer_kernel<<<cuda_gridsize(n), BLOCK>>>(n, layer.w, layer.h, layer.c, input_gpu, layer.output_gpu);
+    check_error(cudaPeekAtLastError());
+}
+
+extern "C" void backward_avgpool_layer_pure_gpu(avgpool_layer layer, float* delta_gpu)
+{
+    size_t n = layer.c*layer.batch;
+
+    backward_avgpool_layer_kernel<<<cuda_gridsize(n), BLOCK>>>(n, layer.w, layer.h, layer.c, delta_gpu, layer.delta_gpu);
+    check_error(cudaPeekAtLastError());
+}
+

@@ -69,3 +69,35 @@ void backward_avgpool_layer(const avgpool_layer l, network net)
     }
 }
 
+
+void forward_avgpool_layer_pure(const avgpool_layer l, float* input)
+{
+    int b,i,k;
+
+    for(b = 0; b < l.batch; ++b){
+        for(k = 0; k < l.c; ++k){
+            int out_index = k + b*l.c;
+            l.output[out_index] = 0;
+            for(i = 0; i < l.h*l.w; ++i){
+                int in_index = i + l.h*l.w*(k + b*l.c);
+                l.output[out_index] += input[in_index];
+            }
+            l.output[out_index] /= l.h*l.w;
+        }
+    }
+}
+
+void backward_avgpool_layer_pure(const avgpool_layer l, float* delta)
+{
+    int b,i,k;
+
+    for(b = 0; b < l.batch; ++b){
+        for(k = 0; k < l.c; ++k){
+            int out_index = k + b*l.c;
+            for(i = 0; i < l.h*l.w; ++i){
+                int in_index = i + l.h*l.w*(k + b*l.c);
+                delta[in_index] += l.delta[out_index] / (l.h*l.w);
+            }
+        }
+    }
+}

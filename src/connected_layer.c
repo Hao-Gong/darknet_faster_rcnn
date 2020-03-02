@@ -196,6 +196,53 @@ void backward_connected_layer(layer l, network net)
 }
 
 
+void forward_connected_layer_pure(layer l, float* input)
+{
+    fill_cpu(l.outputs*l.batch, 0, l.output, 1);
+    int m = l.batch;
+    int k = l.inputs;
+    int n = l.outputs;
+    float *a = input;
+    float *b = l.weights;
+    float *c = l.output;
+    gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+    if(l.batch_normalize){
+        // forward_batchnorm_layer(l, net);
+    } else {
+        add_bias(l.output, l.biases, l.batch, l.outputs, 1);
+    }
+    activate_array(l.output, l.outputs*l.batch, l.activation);
+}
+
+void backward_connected_layer_pure(layer l, float* input,float* delta)
+{
+    gradient_array(l.output, l.outputs*l.batch, l.activation, l.delta);
+
+    if(l.batch_normalize){
+        // backward_batchnorm_layer(l, net);
+    } else {
+        backward_bias(l.bias_updates, l.delta, l.batch, l.outputs, 1);
+    }
+
+    int m = l.outputs;
+    int k = l.batch;
+    int n = l.inputs;
+    float *a = l.delta;
+    float *b = input;
+    float *c = l.weight_updates;
+    gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
+
+    m = l.batch;
+    k = l.outputs;
+    n = l.inputs;
+
+    a = l.delta;
+    b = l.weights;
+    c = delta;
+
+    if(c) gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
+}
+
 void denormalize_connected_layer(layer l)
 {
     int i, j;
@@ -330,6 +377,56 @@ void backward_connected_layer_gpu(layer l, network net)
     a = l.delta_gpu;
     b = l.weights_gpu;
     c = net.delta_gpu;
+
+    if(c) gemm_gpu(0,0,m,n,k,1,a,k,b,n,1,c,n);
+}
+
+
+void forward_connected_layer_pure_gpu(layer l, float* input_gpu)
+{
+    fill_gpu(l.outputs*l.batch, 0, l.output_gpu, 1);
+
+    int m = l.batch;
+    int k = l.inputs;
+    int n = l.outputs;
+    float * a = input_gpu;
+    float * b = l.weights_gpu;
+    float * c = l.output_gpu;
+    gemm_gpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
+
+    if (l.batch_normalize) {
+        // forward_batchnorm_layer_gpu(l, net);
+    } else {
+        add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.outputs, 1);
+    }
+    activate_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation);
+}
+
+void backward_connected_layer_pure_gpu(layer l, float *input_gpu,float *delta_gpu)
+{
+    constrain_gpu(l.outputs*l.batch, 1, l.delta_gpu, 1);
+    gradient_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation, l.delta_gpu);
+    if(l.batch_normalize){
+        // backward_batchnorm_layer_gpu(l, net);
+    } else {
+        backward_bias_gpu(l.bias_updates_gpu, l.delta_gpu, l.batch, l.outputs, 1);
+    }
+
+    int m = l.outputs;
+    int k = l.batch;
+    int n = l.inputs;
+    float * a = l.delta_gpu;
+    float * b = input_gpu;
+    float * c = l.weight_updates_gpu;
+    gemm_gpu(1,0,m,n,k,1,a,m,b,n,1,c,n);
+
+    m = l.batch;
+    k = l.outputs;
+    n = l.inputs;
+
+    a = l.delta_gpu;
+    b = l.weights_gpu;
+    c = delta_gpu;
 
     if(c) gemm_gpu(0,0,m,n,k,1,a,k,b,n,1,c,n);
 }

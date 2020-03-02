@@ -87,6 +87,7 @@ typedef enum {
     UPSAMPLE,
     LOGXENT,
     L2NORM,
+    FASTER_RCNN,
     BLANK
 } LAYER_TYPE;
 
@@ -116,6 +117,7 @@ struct layer{
     LAYER_TYPE type;
     ACTIVATION activation;
     COST_TYPE cost_type;
+    // layer *sub_layers;
     void (*forward)   (struct layer, struct network);
     void (*backward)  (struct layer, struct network);
     void (*update)    (struct layer, update_args);
@@ -327,6 +329,53 @@ struct layer{
     struct layer *ug;
     struct layer *wg;
 
+    float downsample_ratio;
+    int rpn_anchor_box_num;
+    float* anchor_space;
+    float* anchor_scale;
+    float* anchor_ratio;
+    int anchor_scale_num;
+    int anchor_ratio_num;
+    // float* rpn_cls_score_delta
+    float * conv1_delta_add;
+    struct layer *rpn_conv1;
+    struct layer *rpn_cls_score;
+    struct layer *rpn_bbox_pred;
+    struct layer *roi_head_layers;
+    struct layer *roi_cls_score;
+    struct layer *roi_bbox_pred;
+    struct layer *rois_cls_score_softmax;
+
+    int rpn_sample_num;
+    float rpn_sample_pos_ratio;
+    int rpn_sample_pos_max_num;
+    int rpn_sample_neg_max_num;
+    float rpn_iou_pos_thresh;
+    float rpn_iou_neg_thresh;
+    int train_pre_nms_num;
+    int train_post_nms_num;
+    int test_pre_nms_num;
+    int test_post_nms_num;
+    int rois_sample_num;
+    int roialign_pooling_height;
+    int roialign_pooling_width;
+    float rois_nms_thresh;
+    float rois_min_area_thresh;
+    float rois_sample_ratio;
+    float pos_iou_thresh;
+    float neg_iou_thresh_hi;
+    float neg_iou_thresh_lo;
+    float* rois;
+    float* roialign_pooling_output;
+    float* roialign_pooling_output_delta;
+    float* rois_target;
+    float* rois_target_label;
+    float* rois_net_delta_add;
+    float* roi_head_layers_delta_add;
+    int bias_flag;
+    int roi_head_layers_num;
+    int train;
+    int train_rcnn_flg;
     tree *softmax_tree;
 
     size_t workspace_size;
@@ -407,6 +456,16 @@ struct layer{
     float * rand_gpu;
     float * squared_gpu;
     float * norms_gpu;
+
+    float * conv1_delta_add_gpu;
+    float* rois_gpu;
+    float* roialign_pooling_output_gpu;
+    float* roialign_pooling_output_delta_gpu;
+    float* rois_target_gpu;
+    float* rois_target_label_gpu;
+    float* rois_net_delta_add_gpu;
+    float* roi_head_layers_delta_add_gpu;
+
 #ifdef CUDNN
     cudnnTensorDescriptor_t srcTensorDesc, dstTensorDesc;
     cudnnTensorDescriptor_t dsrcTensorDesc, ddstTensorDesc;
@@ -482,6 +541,7 @@ typedef struct network{
     float *delta;
     float *workspace;
     int train;
+    int pretrain;
     int index;
     float *cost;
     float clip;
@@ -539,6 +599,34 @@ typedef struct{
     int *num_boxes;
     box **boxes;
 } data;
+
+typedef struct{
+    int train_rcnn_flg;
+    int rpn_sample_num;
+    float rpn_sample_pos_ratio;
+    float rpn_iou_pos_thresh;
+    float rpn_iou_neg_thresh;
+    int anchor_scale_num;
+    int anchor_ratio_num;
+    float downsample_ratio;
+    float* anchor_scale;
+    float* anchor_ratio;
+    int train_pre_nms_num;
+    int train_post_nms_num;
+    int test_pre_nms_num;
+    int test_post_nms_num;
+    int rois_sample_num;
+    float rois_sample_ratio;
+    int roialign_pooling_height;
+    int roialign_pooling_width;
+    float pos_iou_thresh;
+    float neg_iou_thresh_hi;
+    float neg_iou_thresh_lo;
+    float rois_nms_thresh;
+    float rois_min_area_thresh;
+} faster_rcnn_params;
+
+
 
 typedef enum {
     CLASSIFICATION_DATA, DETECTION_DATA, CAPTCHA_DATA, REGION_DATA, IMAGE_DATA, COMPARE_DATA, WRITING_DATA, SWAG_DATA, TAG_DATA, OLD_CLASSIFICATION_DATA, STUDY_DATA, DET_DATA, SUPER_DATA, LETTERBOX_DATA, REGRESSION_DATA, SEGMENTATION_DATA, INSTANCE_DATA, ISEG_DATA
@@ -744,6 +832,9 @@ int network_height(network *net);
 float *network_predict_image(network *net, image im);
 void network_detect(network *net, image im, float thresh, float hier_thresh, float nms, detection *dets);
 detection *get_network_boxes(network *net, int w, int h, float thresh, float hier, int *map, int relative, int *num);
+// void network_predict_faster_rcnn(network *net, float *input,int w, int h,detection* dets, int *box_num);
+int network_predict_faster_rcnn(network *net, float *input);
+void get_faster_rcnn_dets(network *net, detection* dets,int w, int h,int ndets);
 void free_detections(detection *dets, int n);
 
 void reset_network_state(network *net, int b);
