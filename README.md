@@ -42,6 +42,9 @@ https://pjreddie.com/media/files/resnet152.weights<br/>
 ## continue training the model ##
 ./darknet faster_rcnn train cfg/voc.data cfg/resnet50_faster_rcnn.cfg backup/resnet50_faster_rcnn.backup<br/>
 
+## test the model ##
+./darknet faster_rcnn test cfg/voc.data cfg/resnet50_faster_rcnn.cfg backup/resnet50_faster_rcnn.backup /to/your/image/path/.jpg<br/>
+
 # Future work #
 1. adding the nms_gpu function for the rois nms
 2. FPN structure will be added soon
